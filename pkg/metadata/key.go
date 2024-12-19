@@ -1,9 +1,7 @@
-package go2internetarchive
+package metadata
 
 import (
 	"errors"
-	"fmt"
-	"net/url"
 	"strings"
 )
 
@@ -85,8 +83,4 @@ func isValidKey(k string) error {
 	}
 
 	return nil
-}
-
-func uriEscape(s string) string {
-	return fmt.Sprintf("uri(%s)", url.QueryEscape(s))
 }

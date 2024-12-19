@@ -1,4 +1,4 @@
-package go2internetarchive
+package metadata
 
 import (
 	"strings"
@@ -31,25 +31,4 @@ func Test_IsValidKey(t *testing.T) {
 		})
 	}
 
-}
-
-func Test_uriEscape(t *testing.T) {
-	tests := []struct {
-		s    string
-		want string
-	}{
-		{"hello world", "uri(hello+world)"},
-		{"hell\no-world", "uri(hell%0Ao-world)"},
-		{"hello_world", "uri(hello_world)"},
-		{"hello+world", "uri(hello%2Bworld)"},
-		{"hello%world", "uri(hello%25world)"},
-		{"hello👋", "uri(hello%F0%9F%91%8B)"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.s, func(t *testing.T) {
-			if got := uriEscape(tt.s); got != tt.want {
-				t.Fatalf("want %v, got %v", tt.want, got)
-			}
-		})
-	}
 }
