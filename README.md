@@ -11,19 +11,19 @@
 
 Valid XML characters.
 
-- [ ] Rewrite my previous XML illegal characters filter in Go. (saveweb/biliarchiver/utils/xml_chars.py) 
+- [x] Rewrite my previous XML illegal characters filter in Go. (saveweb/biliarchiver/utils/xml_chars.py) 
 
 ## Uploading
 
 - [ ] Queue derive
 - [ ] Checksum
-- [ ] PUT
+- [x] PUT
 - [ ] Multipart Upload
-- [ ] Resumable Upload
+   - [ ] Resumable Upload
 - [ ] DELETE
-- [ ] Implement the `upload` function.
+- [x] Implement the `upload` function.
 
-## CLI
+## Misc
 
 - [ ] ini parser (.config/internerarchive/ia.ini)
 - [ ] Multi Account Support
