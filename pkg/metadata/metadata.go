@@ -10,7 +10,7 @@ var ErrEmptyValue = errors.New("empty value")
 var ErrNLessThanOne = errors.New("n must be greater than 0")
 
 func toS3HeaderKey(k string, n int) (string, error) {
-	if err := isValidKey(k); err != nil {
+	if err := IsValidKey(k); err != nil {
 		return "", err
 	}
 	if n < 1 {

@@ -16,6 +16,7 @@ func Test_IsValidKey(t *testing.T) {
 		{"a-_b", KeyHyphenWithUnderscoreError},
 		{"a_-b", KeyHyphenWithUnderscoreError},
 		{"123abc", KeyInvalidStartError},
+		{"xmlabc", KeyInvalidStartError},
 		{"ABC123", KeyuUpcaseError},
 		{"abc___123", nil},
 		{"avr-123dc_adsd923-sd2.312-123.123_123", nil},
@@ -25,7 +26,7 @@ func Test_IsValidKey(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.key, func(t *testing.T) {
-			if err := isValidKey(tt.key); err != tt.errW {
+			if err := IsValidKey(tt.key); err != tt.errW {
 				t.Fatalf("want %v, got %v", tt.errW, err)
 			}
 		})

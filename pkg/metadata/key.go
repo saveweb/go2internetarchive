@@ -31,7 +31,8 @@ var KeyHyphenWithUnderscoreError = errors.New("Key contains -_ or _-, which is n
 // Although we can create an item metadata keys starting with underscore via the S3 API,
 // it would lead to an corrupted _meta.xml. (like `<_key>value</_key>`) and IA's /editxml/
 // tool would also prevent you from editing the metadata before you fix the key.
-var KeyInvalidStartError = errors.New("Key must start with a lowercase a-z letter")
+// `xml` is a XML 1.1 reserved prefix.
+var KeyInvalidStartError = errors.New("Key must start with a lowercase a-z letter and may not start with 'xml'")
 
 // IA's metadata keys are always lowercase.
 // If you try to create a metadata key with uppercase letters, IA will normalize it to lowercase.
@@ -44,7 +45,7 @@ var KeyInllegalCharError = errors.New("Key contains illegal characters")
 var KeyTooLongError = errors.New("Key is too long")
 
 // TODO: Item Metadata API option
-func isValidKey(k string) error {
+func IsValidKey(k string) error {
 	if len(k) == 0 {
 		return KeyEmptyError
 	}
@@ -59,6 +60,10 @@ func isValidKey(k string) error {
 	}
 
 	if k[0] < 'a' || k[0] > 'z' {
+		return KeyInvalidStartError
+	}
+
+	if strings.HasPrefix(k, "xml") {
 		return KeyInvalidStartError
 	}
 
