@@ -1,35 +1,38 @@
-# GO2INTERNETARCHIVE - Yet another implementation of the IA S3-like API Client in Go (WIP)
+# GO2INTERNETARCHIVE - Yet another IA S3 Client in Go (WIP)
+
+> This is a work in progress project. The packages and functions may change at any time.
 
 # Usage
 
 ```go
-	identifier := "some_random_identifier"
-	files := map[string]string{
-		"filepath/on/ia":      "path/to/your/local/file",
-		"file2": "file2",
-	}
+identifier := "some_random_identifier"
+files := map[string]string{
+	"filepath/on/ia": "path/to/your/local/file",
+	"file2":          "file2",
+}
 
-	meta := map[string][]string{
-		"title":       {"test - metadata"},
-		"collection":  {"test_collection"},
-		"creator":     {"author1", "author2", "someone3"}, // multiple values
-		"description": {"<body>hello world</body>"}, // description, plain text or html
-		"mediatype":   {"image"},
-		"scanner":     {"saveweb"},
-		"meta1":       {"hello This+is+meta1, !@#$%^&*()_+{}|:\"<>? 你好👋"},
-	}
+meta := map[string][]string{
+	"title":       {"test - dsasdasdasadsa"},
+	"collection":  {"test_collection"},
+	"creator":     {"author1", "author2", "someone3"}, // multiple values
+	"description": {"<body>hello world</body>"}, // description, plain text or html
+	"mediatype":   {"image"},
+	"mymeta1":       {"hello This+is+mymeta1, !@#$%^&*()_+{}|:\"<>? 你好👋"},
+}
 
-   // the first line is the access key, and the second line is the secret key.
-	acckey, seckey, err := utils.ReadKeysFromFile("path/to/your/keys.txt")
-	if err != nil {
-		panic(err)
-	}
+// the first line is the access key, and the second line is the secret key.
+acckey, seckey, err := utils.ReadKeysFromFile("path/to/your/keys.txt")
+if err != nil {
+	panic(err)
+}
 
-	err := upload.Upload(identifier, files, meta, acckey, seckey)
-	if err != nil {
-		panic(err)
-	}
+err := upload.Upload(identifier, files, meta, acckey, seckey)
+if err != nil {
+	panic(err)
+}
 ```
+
+Realworld example -> <https://github.com/saveweb/aixifan/blob/main/pkg/uploader/up.go>
 
 
 ## Metadata
