@@ -50,7 +50,10 @@ func ToS3Headers(m map[string][]string) (map[string]string, error) {
 			}
 
 			s3value := toS3HeaderValue(vv)
-			// TODO: what will happen if the value is empty?
+			if s3value == "" {
+				slog.Warn("Metadata value is empty, IA may not accept it.", "key", k)
+			}
+
 			headers[s3key] = s3value
 		}
 	}
