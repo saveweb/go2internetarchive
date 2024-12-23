@@ -18,8 +18,12 @@
 		"scanner":     {"saveweb"},
 		"meta1":       {"hello This+is+meta1, !@#$%^&*()_+{}|:\"<>? 你好👋"},
 	}
-	acckey := "accessKey"
-	seckey := "secretKey"
+
+   // the first line is the access key, and the second line is the secret key.
+	acckey, seckey, err := utils.ReadKeysFromFile("path/to/your/keys.txt")
+	if err != nil {
+		panic(err)
+	}
 
 	err := upload.Upload(identifier, files, meta, acckey, seckey)
 	if err != nil {
