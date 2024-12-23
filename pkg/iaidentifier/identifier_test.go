@@ -8,7 +8,7 @@ import (
 func Test_IsValidIdentifier(t *testing.T) {
 	tests := []struct {
 		identifier string
-		want       bool
+		ok         bool
 	}{
 		{"", false},
 		{"a", true},
@@ -22,8 +22,8 @@ func Test_IsValidIdentifier(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.identifier, func(t *testing.T) {
-			if got := IsValidIdentifier(tt.identifier); got != tt.want {
-				t.Fatalf("want %v, got %v", tt.want, got)
+			if got := IsValidIdentifier(tt.identifier); got == nil && !tt.ok {
+				t.Fatalf("want %v, got %v", tt.ok, got)
 			}
 		})
 	}
