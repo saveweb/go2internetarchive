@@ -9,6 +9,7 @@ import (
 
 	"github.com/saveweb/go2internetarchive/pkg/iaidentifier"
 	"github.com/saveweb/go2internetarchive/pkg/metadata"
+	"github.com/saveweb/go2internetarchive/pkg/utils"
 	"github.com/schollz/progressbar/v3"
 )
 
@@ -101,6 +102,8 @@ func Upload(identifier string, files map[string]string, meta map[string][]string
 	if err := iaidentifier.IsValidIdentifier(identifier); err != nil {
 		return err
 	}
+
+	meta["scanner"] = append(meta["scanner"], "saveweb/go2internetarchive "+utils.GetVersion())
 
 	headers, err := metadata.ToS3Headers(meta)
 	if err != nil {
