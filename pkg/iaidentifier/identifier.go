@@ -18,13 +18,16 @@ func IsValidIdentifier(identifier string) error {
 		return fmt.Errorf("identifier is too long (max 100 characters)")
 	}
 
-	if identifier[0] < 'a' || identifier[0] > 'z' {
-		return fmt.Errorf("identifier should start with a-z")
-	}
-
-	for _, c := range identifier {
+	for idx, c := range identifier {
 		if c >= 'a' && c <= 'z' {
 			continue
+		}
+		if c >= 'A' && c <= 'Z' {
+			continue
+		}
+
+		if idx == 0 {
+			return fmt.Errorf("identifier cannot start with %c", c)
 		}
 		if c >= '0' && c <= '9' {
 			continue

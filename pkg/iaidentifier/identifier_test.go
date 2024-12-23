@@ -16,6 +16,7 @@ func Test_IsValidIdentifier(t *testing.T) {
 		{"a_b", true},
 		{"a_b123", true},
 		{"a.b,", false},
+		{"Ab", true},
 		{strings.Repeat("a", 101), false},
 		{"1a", false},
 		{"-a", false},
