@@ -8,7 +8,11 @@ import (
 )
 
 func uriEscape(s string) string {
-	return fmt.Sprintf("uri(%s)", url.QueryEscape(s))
+	r := url.PathEscape(s)
+	if r == s {
+		return s
+	}
+	return fmt.Sprintf("uri(%s)", r)
 }
 
 // Copy from Golang's xml package

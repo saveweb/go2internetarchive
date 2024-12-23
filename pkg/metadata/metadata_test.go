@@ -34,11 +34,11 @@ func Test_toS3HeaderValue(t *testing.T) {
 		s    string
 		want string
 	}{
-		{"", "uri()"},
-		{"hello world", "uri(hello+world)"},
+		{"", ""},
+		{"hello world", "uri(hello%20world)"},
 		{"hell\no-\x12world", "uri(hell%0Ao-%EF%BF%BDworld)"},
 		{"hello_world\x0b", "uri(hello_world%EF%BF%BD)"},
-		{"hello+world", "uri(hello%2Bworld)"},
+		{"hello+world", "hello+world"},
 		{"hello%world\xef\xbf\xbe", "uri(hello%25world%EF%BF%BD)"},
 		{"hello👋", "uri(hello%F0%9F%91%8B)"},
 	}

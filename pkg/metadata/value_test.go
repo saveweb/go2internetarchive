@@ -10,12 +10,13 @@ func Test_uriEscape(t *testing.T) {
 		s    string
 		want string
 	}{
-		{"hello world", "uri(hello+world)"},
+		{"hello world", "uri(hello%20world)"},
+		{"hello+world", "hello+world"},
+		{"hello_world", "hello_world"},
 		{"hell\no-world", "uri(hell%0Ao-world)"},
-		{"hello_world", "uri(hello_world)"},
-		{"hello+world", "uri(hello%2Bworld)"},
 		{"hello%world", "uri(hello%25world)"},
 		{"hello👋", "uri(hello%F0%9F%91%8B)"},
+		{"hello This+is+meta1, !@#$%^&*()_+{}|:\"<>? 你好👋", "uri(hello%20This+is+meta1%2C%20%21@%23$%25%5E&%2A%28%29_+%7B%7D%7C:%22%3C%3E%3F%20%E4%BD%A0%E5%A5%BD%F0%9F%91%8B)"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.s, func(t *testing.T) {
