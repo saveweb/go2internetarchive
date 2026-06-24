@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/saveweb/go2internetarchive/pkg/iaidentifier"
+	"github.com/saveweb/go2internetarchive/pkg/iautils"
 	"github.com/saveweb/go2internetarchive/pkg/metadata"
 	"github.com/saveweb/go2internetarchive/pkg/utils"
 	"github.com/schollz/progressbar/v3"
@@ -15,17 +16,26 @@ import (
 
 var S3Endpoint = "https://s3.us.archive.org/"
 
+func getSize(file string) (int64, error) {
+	finfo, err := os.Stat(file)
+	if err != nil {
+		return 0, err
+	}
+	if finfo.IsDir() {
+		return 0, fmt.Errorf("file should not be a directory: %s", file)
+	}
+	return finfo.Size(), nil
+}
+
 func getTotalSize(files map[string]string) (int64, error) {
 	var totalSize int64
 	for _, localPath := range files {
-		finfo, err := os.Stat(localPath)
+		size, err := getSize(localPath)
 		if err != nil {
+			slog.Error("get size failed", "err", err, "localPath", localPath)
 			return 0, err
 		}
-		if finfo.IsDir() {
-			return 0, fmt.Errorf("localPath should not be a directory: %s", localPath)
-		}
-		totalSize += finfo.Size()
+		totalSize += size
 	}
 
 	return totalSize, nil
@@ -110,12 +120,43 @@ func Upload(identifier string, files map[string]string, meta map[string][]string
 		return err
 	}
 
-	TotalSize, err := getTotalSize(files)
-	if err != nil {
+	if err := checkRemoteFilenames(files); err != nil {
 		return err
 	}
 
-	if err := checkRemoteFilenames(files); err != nil {
+	filesOnline, err := iautils.GetFilesOnline(identifier)
+	if err != nil {
+		// pass
+	} else {
+		for fileToUploadTo, localFile := range files {
+			for _, fileOnline := range filesOnline {
+				if fileToUploadTo == fileOnline.Name {
+					localFileSize, err := getSize(localFile)
+					if err != nil {
+						return err
+					}
+					localFileSizeStr := fmt.Sprintf("%d", localFileSize)
+					if localFileSizeStr == fileOnline.Size {
+						sha1sumLocal, err := utils.SHA1SUM(localFile)
+						if err != nil {
+							return err
+						}
+						if sha1sumLocal == fileOnline.SHA1 {
+							slog.Info("file already exists and is the same, skipping...", "file", fileToUploadTo, "size", localFileSize, "sha1", sha1sumLocal)
+							delete(files, fileToUploadTo)
+						} else {
+							slog.Warn("file already exists, but sha1 is different", "file", fileToUploadTo, "localSHA1", sha1sumLocal, "onlineSHA1", fileOnline.SHA1)
+						}
+					} else {
+						slog.Warn("file already exists, but size is different", "file", fileToUploadTo, "localSize", localFileSize, "onlineSize", fileOnline.Size)
+					}
+				}
+			}
+		}
+	}
+
+	TotalSize, err := getTotalSize(files)
+	if err != nil {
 		return err
 	}
 

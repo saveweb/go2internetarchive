@@ -26,3 +26,25 @@ func Test_ReadKeysFromFile(t *testing.T) {
 		})
 	}
 }
+
+func Test_SHA1SUM(t *testing.T) {
+	tests := []struct {
+		file    string
+		wantSum string
+		wantErr bool
+	}{
+		{"test_keys.txt", "0908539741466df32fa5fcb1843986ad1cbca24e", false},
+		{"ahahahaha", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.file, func(t *testing.T) {
+			gotSum, gotErr := SHA1SUM(tt.file)
+			if (gotErr != nil) != tt.wantErr {
+				t.Fatalf("want error %v, got %v", tt.wantErr, gotErr)
+			}
+			if gotSum != tt.wantSum {
+				t.Fatalf("want %v, got %v", tt.wantSum, gotSum)
+			}
+		})
+	}
+}

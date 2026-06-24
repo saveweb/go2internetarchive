@@ -1,7 +1,9 @@
 package utils
 
 import (
+	"crypto/sha1"
 	"fmt"
+	"io"
 	"os"
 )
 
@@ -23,4 +25,19 @@ func ReadKeysFromFile(file string) (accKey, secKey string, err error) {
 	}
 
 	return keys[0], keys[1], nil
+}
+
+func SHA1SUM(file string) (string, error) {
+	f, err := os.Open(file)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	h := sha1.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
