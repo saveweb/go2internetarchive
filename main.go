@@ -85,17 +85,25 @@ func issuerFor(project string) *identifierIssuer {
 	return iss
 }
 
-func (u *Router) LoadConfig() error {
-	log.Printf("Loading config for project %s", u.Project)
-
+func GetRouterJSON() (*configFile, error) {
 	raw, err := os.ReadFile("./router.json")
 	if err != nil {
-		return fmt.Errorf("read router.json: %w", err)
+		return nil, fmt.Errorf("read router.json: %w", err)
 	}
 
 	var cfg configFile
 	if err := json.Unmarshal(raw, &cfg); err != nil {
-		return fmt.Errorf("parse router.json: %w", err)
+		return nil, fmt.Errorf("parse router.json: %w", err)
+	}
+	return &cfg, nil
+}
+
+func (u *Router) LoadConfig() error {
+	log.Printf("Loading config for project %s", u.Project)
+
+	cfg, err := GetRouterJSON()
+	if err != nil {
+		return fmt.Errorf("load router.json: %w", err)
 	}
 
 	pc, ok := cfg.Projects[u.Project]
@@ -184,13 +192,13 @@ func handleUploadEvent(event tusd.HookEvent) {
 }
 
 func handleRouterJSON(w http.ResponseWriter, r *http.Request) {
-	router := Router{}
-	if err := router.LoadConfig(); err != nil {
+	cfg, err := GetRouterJSON()
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(router.cfg)
+	json.NewEncoder(w).Encode(cfg)
 }
 
 func main() {
