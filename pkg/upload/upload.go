@@ -137,6 +137,9 @@ func Upload(identifier string, files map[string]string, meta map[string][]string
 					}
 					localFileSizeStr := fmt.Sprintf("%d", localFileSize)
 					if localFileSizeStr == fileOnline.Size {
+						// slog.Info("file already exists and is the same, skipping...", "file", fileToUploadTo, "size", localFileSize)
+						// delete(files, fileToUploadTo)
+
 						sha1sumLocal, err := utils.SHA1SUM(localFile)
 						if err != nil {
 							return err
