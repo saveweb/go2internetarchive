@@ -181,7 +181,16 @@ func handleUploadEvent(event tusd.HookEvent) {
 			log.Printf("  key:    %s", storage["Key"])
 		}
 	}
+}
 
+func handleRouterJSON(w http.ResponseWriter, r *http.Request) {
+	router := Router{}
+	if err := router.LoadConfig(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(router.cfg)
 }
 
 func main() {
@@ -221,6 +230,7 @@ func main() {
 	// http://localhost:8080/files
 	http.Handle("/files/", http.StripPrefix("/files/", handler))
 	http.Handle("/files", http.StripPrefix("/files", handler))
+	http.Handle("/router.json", http.HandlerFunc(handleRouterJSON))
 	err = http.ListenAndServe(":8080", nil)
 	if err != nil {
 		log.Fatalf("unable to listen: %s", err)
