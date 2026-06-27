@@ -1,0 +1,23 @@
+# Copy this file to compose.yml and edit before use:
+#   cp compose.yml.example compose.yml
+
+services:
+  go2internetarchive:
+    build: .
+    # image: ghcr.io/saveweb/go2internetarchive:latest   # use a prebuilt image instead of building
+    container_name: go2internetarchive
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+
+    volumes:
+      # Project config (see router.json structure). Must exist on the host.
+      - ./router.json:/app/router.json:ro
+      # Internet Archive S3 keys: first line = access key, second line = secret.
+      # Path MUST match the `s3keypath` value inside router.json (default: ./save-web_keys.txt).
+      - ./save-web_keys.txt:/app/save-web_keys.txt:ro
+      # Persistent tus upload staging area (files land here before archiving to IA).
+      - go2ia-uploads:/app/uploads
+
+volumes:
+  go2ia-uploads:

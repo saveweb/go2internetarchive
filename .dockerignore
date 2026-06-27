@@ -1,0 +1,12 @@
+# Secrets & runtime config are mounted at runtime, never baked into the image.
+save-web_keys.txt
+router.json
+*.keys
+*_keys.txt
+
+# Runtime state.
+uploads/
+*.log
+
+# Local test artifacts.
+.git/
