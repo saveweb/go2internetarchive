@@ -1,6 +1,10 @@
 package upload
 
 import (
+	"context"
+	"errors"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +12,59 @@ import (
 
 	"github.com/saveweb/go2internetarchive/pkg/utils"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
+}
+
+func TestUploadFileReturnsNetworkError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "artifact")
+	if err := os.WriteFile(path, []byte("artifact"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	want := errors.New("network unavailable")
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, want
+	})}
+	if err := uploadFile(t.Context(), client, "identifier", path, "artifact", nil, 1, 1); !errors.Is(err, want) {
+		t.Fatalf("uploadFile error = %v, want %v", err, want)
+	}
+}
+
+func TestUploadFileEscapesRemotePath(t *testing.T) {
+	localPath := filepath.Join(t.TempDir(), "artifact")
+	if err := os.WriteFile(localPath, []byte("artifact"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var got *http.Request
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		got = request
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+	})}
+	if err := uploadFile(t.Context(), client, "identifier", localPath, "dir/artifact?#%.warc", nil, 1, 1); err != nil {
+		t.Fatal(err)
+	}
+	if got.URL.EscapedPath() != "/identifier/dir/artifact%3F%23%25.warc" || got.URL.RawQuery != "" || got.URL.Fragment != "" {
+		t.Fatalf("upload URL = %q", got.URL.String())
+	}
+}
+
+func TestUploadFileHonorsContext(t *testing.T) {
+	localPath := filepath.Join(t.TempDir(), "artifact")
+	if err := os.WriteFile(localPath, []byte("artifact"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return nil, request.Context().Err()
+	})}
+	if err := uploadFile(ctx, client, "identifier", localPath, "artifact", nil, 1, 1); !errors.Is(err, context.Canceled) {
+		t.Fatalf("uploadFile error = %v, want context canceled", err)
+	}
+}
 
 func Test_Upload_Fail(t *testing.T) {
 	// Create temp file

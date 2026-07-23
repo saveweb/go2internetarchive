@@ -1,9 +1,11 @@
 package upload
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
@@ -58,7 +60,7 @@ func checkRemoteFilenames(files map[string]string) error {
 	return nil
 }
 
-func uploadFile(client *http.Client, identifier, localPath, remotePath string, headers map[string]string, current, total int) error {
+func uploadFile(ctx context.Context, client *http.Client, identifier, localPath, remotePath string, headers map[string]string, current, total int) error {
 	// assert localPath exists
 	finfo, err := os.Stat(localPath)
 	if err != nil {
@@ -75,7 +77,11 @@ func uploadFile(client *http.Client, identifier, localPath, remotePath string, h
 	bar := progressbar.DefaultBytes(contentLength, fmt.Sprintf("[%d/%d] %s", current, total, remotePath))
 	progressReader := progressbar.NewReader(freader, bar)
 
-	req, err := http.NewRequest("PUT", S3Endpoint+identifier+"/"+remotePath, &progressReader)
+	requestURL, err := buildUploadURL(identifier, remotePath)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, "PUT", requestURL, &progressReader)
 	if err != nil {
 		return err
 	}
@@ -87,7 +93,7 @@ func uploadFile(client *http.Client, identifier, localPath, remotePath string, h
 
 	resp, err := client.Do(req)
 	if err != nil {
-		slog.Error("upload failed", "err", err, "url", resp.Request.URL)
+		slog.Error("upload failed", "err", err, "url", req.URL)
 		return err
 	}
 	defer resp.Body.Close()
@@ -104,11 +110,31 @@ func uploadFile(client *http.Client, identifier, localPath, remotePath string, h
 	return nil
 }
 
+func buildUploadURL(identifier, remotePath string) (string, error) {
+	base, err := url.Parse(S3Endpoint)
+	if err != nil {
+		return "", fmt.Errorf("parse S3 endpoint: %w", err)
+	}
+	if !strings.HasSuffix(base.Path, "/") {
+		base.Path += "/"
+	}
+	base.Path += identifier + "/" + remotePath
+	return base.String(), nil
+}
+
 // Upload files to Internet Archive
 //
 //	meta: map[key]values, // key should be in lowercase
 //	files: map[remotePath]localPath
 func Upload(identifier string, files map[string]string, meta map[string][]string, accKey, secKey string) error {
+	return UploadContext(context.Background(), &http.Client{}, identifier, files, meta, accKey, secKey)
+}
+
+// UploadContext uploads files using the supplied context and HTTP client.
+func UploadContext(ctx context.Context, client *http.Client, identifier string, files map[string]string, meta map[string][]string, accKey, secKey string) error {
+	if client == nil {
+		return fmt.Errorf("http client is required")
+	}
 	if err := iaidentifier.IsValidIdentifier(identifier); err != nil {
 		return err
 	}
@@ -124,7 +150,7 @@ func Upload(identifier string, files map[string]string, meta map[string][]string
 		return err
 	}
 
-	filesOnline, err := iautils.GetFilesOnline(identifier)
+	filesOnline, err := iautils.GetFilesOnlineContext(ctx, client, identifier)
 	if err != nil {
 		// pass
 	} else {
@@ -163,8 +189,6 @@ func Upload(identifier string, files map[string]string, meta map[string][]string
 		return err
 	}
 
-	client := &http.Client{}
-
 	headers["authorization"] = fmt.Sprintf("LOW %s:%s", accKey, secKey)
 	headers["user-agent"] = "saveweb/go2internetarchive"
 	headers["x-archive-auto-make-bucket"] = "1"
@@ -180,7 +204,7 @@ func Upload(identifier string, files map[string]string, meta map[string][]string
 			headers["x-archive-queue-derive"] = "1"
 		}
 
-		err := uploadFile(client, identifier, localPath, remotePath, headers, current, len(files))
+		err := uploadFile(ctx, client, identifier, localPath, remotePath, headers, current, len(files))
 		if err != nil {
 			return err
 		}
