@@ -63,7 +63,7 @@ Realworld example -> <https://github.com/saveweb/aixifan/blob/main/pkg/uploader/
 
 ## Misc
 
-- [ ] ini parser (`.config/internerarchive/ia.ini`)
+- [ ] ini parser (`.config/internetarchive/ia.ini`)
 - [ ] Multi Account Support
 - [ ] Download
 - [ ] Upload
