@@ -3,11 +3,14 @@ package upload
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/saveweb/go2internetarchive/pkg/iaidentifier"
 	"github.com/saveweb/go2internetarchive/pkg/iautils"
@@ -17,6 +20,124 @@ import (
 )
 
 var S3Endpoint = "https://s3.us.archive.org/"
+
+// Progress is a snapshot of an upload's progress. BytesUploaded counts bytes
+// read by the HTTP transport. Done means that progress reporting has stopped,
+// not that the upload succeeded; the Upload return value confirms acceptance.
+type Progress struct {
+	BytesUploaded  int64
+	TotalBytes     int64
+	BytesPerSecond int64
+	FilesUploaded  int
+	TotalFiles     int
+	CurrentFile    string
+	Elapsed        time.Duration
+	Done           bool
+}
+
+type progressTracker struct {
+	mu            sync.Mutex
+	startedAt     time.Time
+	bytesUploaded int64
+	totalBytes    int64
+	filesUploaded int
+	totalFiles    int
+	currentFile   string
+}
+
+func newProgressTracker(totalBytes int64, totalFiles int) *progressTracker {
+	return &progressTracker{
+		startedAt:  time.Now(),
+		totalBytes: totalBytes,
+		totalFiles: totalFiles,
+	}
+}
+
+func (t *progressTracker) addBytes(n int64) {
+	t.mu.Lock()
+	t.bytesUploaded += n
+	t.mu.Unlock()
+}
+
+func (t *progressTracker) startFile(remotePath string) {
+	t.mu.Lock()
+	t.currentFile = remotePath
+	t.mu.Unlock()
+}
+
+func (t *progressTracker) finishFile() {
+	t.mu.Lock()
+	t.filesUploaded++
+	t.currentFile = ""
+	t.mu.Unlock()
+}
+
+func (t *progressTracker) snapshot(previousBytes int64, previousAt time.Time, done bool) Progress {
+	now := time.Now()
+	t.mu.Lock()
+	progress := Progress{
+		BytesUploaded: t.bytesUploaded,
+		TotalBytes:    t.totalBytes,
+		FilesUploaded: t.filesUploaded,
+		TotalFiles:    t.totalFiles,
+		CurrentFile:   t.currentFile,
+		Elapsed:       now.Sub(t.startedAt),
+		Done:          done,
+	}
+	t.mu.Unlock()
+
+	if elapsed := now.Sub(previousAt); elapsed > 0 {
+		progress.BytesPerSecond = int64(float64(progress.BytesUploaded-previousBytes) / elapsed.Seconds())
+	}
+	return progress
+}
+
+type trackingReader struct {
+	reader  io.Reader
+	tracker *progressTracker
+}
+
+func (r *trackingReader) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	r.tracker.addBytes(int64(n))
+	return n, err
+}
+
+func reportProgress(progress chan<- Progress, tracker *progressTracker, interval time.Duration) func() {
+	stop := make(chan struct{})
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		previousBytes := int64(0)
+		previousAt := tracker.startedAt
+		for {
+			select {
+			case <-ticker.C:
+				snapshot := tracker.snapshot(previousBytes, previousAt, false)
+				select {
+				case progress <- snapshot:
+				default:
+				}
+				previousBytes = snapshot.BytesUploaded
+				previousAt = time.Now()
+			case <-stop:
+				snapshot := tracker.snapshot(previousBytes, previousAt, true)
+				select {
+				case progress <- snapshot:
+				default:
+				}
+				return
+			}
+		}
+	}()
+
+	return func() {
+		close(stop)
+		<-stopped
+	}
+}
 
 func getSize(file string) (int64, error) {
 	finfo, err := os.Stat(file)
@@ -60,7 +181,7 @@ func checkRemoteFilenames(files map[string]string) error {
 	return nil
 }
 
-func uploadFile(ctx context.Context, client *http.Client, identifier, localPath, remotePath string, headers map[string]string, current, total int) error {
+func uploadFile(ctx context.Context, client *http.Client, identifier, localPath, remotePath string, headers map[string]string, current, total int, tracker *progressTracker) error {
 	// assert localPath exists
 	finfo, err := os.Stat(localPath)
 	if err != nil {
@@ -76,12 +197,17 @@ func uploadFile(ctx context.Context, client *http.Client, identifier, localPath,
 
 	bar := progressbar.DefaultBytes(contentLength, fmt.Sprintf("[%d/%d] %s", current, total, remotePath))
 	progressReader := progressbar.NewReader(freader, bar)
+	var body io.Reader = &progressReader
+	if tracker != nil {
+		tracker.startFile(remotePath)
+		body = &trackingReader{reader: body, tracker: tracker}
+	}
 
 	requestURL, err := buildUploadURL(identifier, remotePath)
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, "PUT", requestURL, &progressReader)
+	req, err := http.NewRequestWithContext(ctx, "PUT", requestURL, body)
 	if err != nil {
 		return err
 	}
@@ -107,6 +233,9 @@ func uploadFile(ctx context.Context, client *http.Client, identifier, localPath,
 		slog.Error("resp", "headers", resp.Header)
 		return fmt.Errorf("upload failed: %s", resp.Status)
 	}
+	if tracker != nil {
+		tracker.finishFile()
+	}
 	return nil
 }
 
@@ -127,11 +256,26 @@ func buildUploadURL(identifier, remotePath string) (string, error) {
 //	meta: map[key]values, // key should be in lowercase
 //	files: map[remotePath]localPath
 func Upload(identifier string, files map[string]string, meta map[string][]string, accKey, secKey string) error {
-	return UploadContext(context.Background(), &http.Client{}, identifier, files, meta, accKey, secKey)
+	return UploadWithProgress(identifier, files, meta, accKey, secKey, nil)
 }
 
 // UploadContext uploads files using the supplied context and HTTP client.
 func UploadContext(ctx context.Context, client *http.Client, identifier string, files map[string]string, meta map[string][]string, accKey, secKey string) error {
+	return UploadContextWithProgress(ctx, client, identifier, files, meta, accKey, secKey, nil)
+}
+
+// UploadWithProgress uploads files and sends progress snapshots once per second.
+// Sending is non-blocking, including the final snapshot, and the caller remains
+// responsible for closing progress.
+func UploadWithProgress(identifier string, files map[string]string, meta map[string][]string, accKey, secKey string, progress chan<- Progress) error {
+	return UploadContextWithProgress(context.Background(), &http.Client{}, identifier, files, meta, accKey, secKey, progress)
+}
+
+// UploadContextWithProgress uploads files using the supplied context and HTTP
+// client. It sends progress snapshots once per second and attempts one final
+// snapshot. Sending is non-blocking, and the caller remains responsible for
+// closing progress.
+func UploadContextWithProgress(ctx context.Context, client *http.Client, identifier string, files map[string]string, meta map[string][]string, accKey, secKey string, progress chan<- Progress) error {
 	if client == nil {
 		return fmt.Errorf("http client is required")
 	}
@@ -189,6 +333,14 @@ func UploadContext(ctx context.Context, client *http.Client, identifier string, 
 		return err
 	}
 
+	var stopProgress func()
+	var tracker *progressTracker
+	if progress != nil {
+		tracker = newProgressTracker(TotalSize, len(files))
+		stopProgress = reportProgress(progress, tracker, time.Second)
+		defer stopProgress()
+	}
+
 	headers["authorization"] = fmt.Sprintf("LOW %s:%s", accKey, secKey)
 	headers["user-agent"] = "saveweb/go2internetarchive"
 	headers["x-archive-auto-make-bucket"] = "1"
@@ -204,7 +356,7 @@ func UploadContext(ctx context.Context, client *http.Client, identifier string, 
 			headers["x-archive-queue-derive"] = "1"
 		}
 
-		err := uploadFile(ctx, client, identifier, localPath, remotePath, headers, current, len(files))
+		err := uploadFile(ctx, client, identifier, localPath, remotePath, headers, current, len(files), tracker)
 		if err != nil {
 			return err
 		}

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/saveweb/go2internetarchive/pkg/utils"
 )
@@ -28,7 +29,7 @@ func TestUploadFileReturnsNetworkError(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return nil, want
 	})}
-	if err := uploadFile(t.Context(), client, "identifier", path, "artifact", nil, 1, 1); !errors.Is(err, want) {
+	if err := uploadFile(t.Context(), client, "identifier", path, "artifact", nil, 1, 1, nil); !errors.Is(err, want) {
 		t.Fatalf("uploadFile error = %v, want %v", err, want)
 	}
 }
@@ -43,7 +44,7 @@ func TestUploadFileEscapesRemotePath(t *testing.T) {
 		got = request
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
 	})}
-	if err := uploadFile(t.Context(), client, "identifier", localPath, "dir/artifact?#%.warc", nil, 1, 1); err != nil {
+	if err := uploadFile(t.Context(), client, "identifier", localPath, "dir/artifact?#%.warc", nil, 1, 1, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got.URL.EscapedPath() != "/identifier/dir/artifact%3F%23%25.warc" || got.URL.RawQuery != "" || got.URL.Fragment != "" {
@@ -61,8 +62,71 @@ func TestUploadFileHonorsContext(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		return nil, request.Context().Err()
 	})}
-	if err := uploadFile(ctx, client, "identifier", localPath, "artifact", nil, 1, 1); !errors.Is(err, context.Canceled) {
+	if err := uploadFile(ctx, client, "identifier", localPath, "artifact", nil, 1, 1, nil); !errors.Is(err, context.Canceled) {
 		t.Fatalf("uploadFile error = %v, want context canceled", err)
+	}
+}
+
+func TestUploadFileTracksProgress(t *testing.T) {
+	contents := []byte("artifact contents")
+	localPath := filepath.Join(t.TempDir(), "artifact")
+	if err := os.WriteFile(localPath, contents, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if _, err := io.Copy(io.Discard, request.Body); err != nil {
+			return nil, err
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+	})}
+	tracker := newProgressTracker(int64(len(contents)), 1)
+	if err := uploadFile(t.Context(), client, "identifier", localPath, "artifact", nil, 1, 1, tracker); err != nil {
+		t.Fatal(err)
+	}
+
+	got := tracker.snapshot(0, tracker.startedAt, true)
+	if got.BytesUploaded != int64(len(contents)) || got.TotalBytes != int64(len(contents)) {
+		t.Fatalf("bytes = %d/%d, want %d/%d", got.BytesUploaded, got.TotalBytes, len(contents), len(contents))
+	}
+	if got.FilesUploaded != 1 || got.TotalFiles != 1 || got.CurrentFile != "" || !got.Done {
+		t.Fatalf("progress = %+v", got)
+	}
+}
+
+func TestReportProgressDoesNotBlockOnSlowConsumer(t *testing.T) {
+	progress := make(chan Progress)
+	tracker := newProgressTracker(100, 1)
+	stop := reportProgress(progress, tracker, time.Millisecond)
+	time.Sleep(5 * time.Millisecond)
+	stop()
+}
+
+func TestReportProgressSendsSnapshots(t *testing.T) {
+	progress := make(chan Progress, 1)
+	tracker := newProgressTracker(100, 1)
+	tracker.startFile("artifact")
+	tracker.addBytes(25)
+	stop := reportProgress(progress, tracker, 10*time.Millisecond)
+
+	select {
+	case got := <-progress:
+		if got.BytesUploaded != 25 || got.TotalBytes != 100 || got.CurrentFile != "artifact" || got.Done {
+			t.Fatalf("periodic progress = %+v", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for periodic progress")
+	}
+
+	tracker.addBytes(75)
+	tracker.finishFile()
+	stop()
+	select {
+	case got := <-progress:
+		if got.BytesUploaded != 100 || got.FilesUploaded != 1 || !got.Done {
+			t.Fatalf("final progress = %+v", got)
+		}
+	default:
+		t.Fatal("final progress was not sent")
 	}
 }
 

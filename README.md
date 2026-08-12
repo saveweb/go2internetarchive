@@ -32,6 +32,27 @@ if err != nil {
 }
 ```
 
+To receive upload statistics, pass a channel to
+`UploadWithProgress`. The uploader sends a snapshot once per second and a final snapshot when it returns. Sends are non-blocking, so a slow consumer may miss snapshots, including the final one.
+
+The caller owns and closes the channel.
+
+```go
+progress := make(chan upload.Progress, 1)
+go func() {
+	for snapshot := range progress {
+		log.Printf("uploaded %d/%d bytes (%d bytes/s)",
+			snapshot.BytesUploaded, snapshot.TotalBytes, snapshot.BytesPerSecond)
+	}
+}()
+
+err = upload.UploadWithProgress(identifier, files, meta, acckey, seckey, progress)
+close(progress)
+if err != nil {
+	panic(err)
+}
+```
+
 Realworld example -> <https://github.com/saveweb/aixifan/blob/main/pkg/uploader/up.go>
 
 
