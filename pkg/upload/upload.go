@@ -195,12 +195,14 @@ func uploadFile(ctx context.Context, client *http.Client, identifier, localPath,
 	}
 	defer freader.Close()
 
-	bar := progressbar.DefaultBytes(contentLength, fmt.Sprintf("[%d/%d] %s", current, total, remotePath))
-	progressReader := progressbar.NewReader(freader, bar)
-	var body io.Reader = &progressReader
+	var body io.Reader = freader
 	if tracker != nil {
 		tracker.startFile(remotePath)
 		body = &trackingReader{reader: body, tracker: tracker}
+	} else {
+		bar := progressbar.DefaultBytes(contentLength, fmt.Sprintf("[%d/%d] %s", current, total, remotePath))
+		progressReader := progressbar.NewReader(freader, bar)
+		body = &progressReader
 	}
 
 	requestURL, err := buildUploadURL(identifier, remotePath)
