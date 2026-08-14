@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -150,18 +151,33 @@ func getSize(file string) (int64, error) {
 	return finfo.Size(), nil
 }
 
-func getTotalSize(files map[string]string) (int64, error) {
+type uploadPlanFile struct {
+	remotePath string
+	localPath  string
+	size       int64
+}
+
+func buildUploadPlan(files map[string]string) ([]uploadPlanFile, int64, error) {
+	plan := make([]uploadPlanFile, 0, len(files))
 	var totalSize int64
-	for _, localPath := range files {
+	for remotePath, localPath := range files {
 		size, err := getSize(localPath)
 		if err != nil {
 			slog.Error("get size failed", "err", err, "localPath", localPath)
-			return 0, err
+			return nil, 0, err
 		}
+		plan = append(plan, uploadPlanFile{remotePath: remotePath, localPath: localPath, size: size})
 		totalSize += size
 	}
 
-	return totalSize, nil
+	sort.Slice(plan, func(i, j int) bool {
+		if plan[i].size != plan[j].size {
+			return plan[i].size < plan[j].size
+		}
+		return plan[i].remotePath < plan[j].remotePath
+	})
+
+	return plan, totalSize, nil
 }
 
 func checkRemoteFilenames(files map[string]string) error {
@@ -330,7 +346,7 @@ func UploadContextWithProgress(ctx context.Context, client *http.Client, identif
 		}
 	}
 
-	TotalSize, err := getTotalSize(files)
+	plan, totalSize, err := buildUploadPlan(files)
 	if err != nil {
 		return err
 	}
@@ -338,7 +354,7 @@ func UploadContextWithProgress(ctx context.Context, client *http.Client, identif
 	var stopProgress func()
 	var tracker *progressTracker
 	if progress != nil {
-		tracker = newProgressTracker(TotalSize, len(files))
+		tracker = newProgressTracker(totalSize, len(plan))
 		stopProgress = reportProgress(progress, tracker, time.Second)
 		defer stopProgress()
 	}
@@ -346,19 +362,19 @@ func UploadContextWithProgress(ctx context.Context, client *http.Client, identif
 	headers["authorization"] = fmt.Sprintf("LOW %s:%s", accKey, secKey)
 	headers["user-agent"] = "saveweb/go2internetarchive"
 	headers["x-archive-auto-make-bucket"] = "1"
-	headers["x-archive-size-hint"] = fmt.Sprintf("%d", TotalSize)
+	headers["x-archive-size-hint"] = fmt.Sprintf("%d", totalSize)
 
 	headers["x-archive-queue-derive"] = "0" // default to disable derive
 
 	current := 0
-	for remotePath, localPath := range files {
+	for _, file := range plan {
 		current++
-		if current >= len(files) {
+		if current >= len(plan) {
 			// enable derive for the last file
 			headers["x-archive-queue-derive"] = "1"
 		}
 
-		err := uploadFile(ctx, client, identifier, localPath, remotePath, headers, current, len(files), tracker)
+		err := uploadFile(ctx, client, identifier, file.localPath, file.remotePath, headers, current, len(plan), tracker)
 		if err != nil {
 			return err
 		}

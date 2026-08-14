@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -90,6 +91,83 @@ func TestUploadFileTracksProgress(t *testing.T) {
 	}
 	if got.FilesUploaded != 1 || got.TotalFiles != 1 || got.CurrentFile != "" || !got.Done {
 		t.Fatalf("progress = %+v", got)
+	}
+}
+
+func TestBuildUploadPlanSortsSmallFilesFirst(t *testing.T) {
+	tempDir := t.TempDir()
+	files := map[string]string{}
+	for remotePath, contents := range map[string]string{
+		"large.warc":   "123456789",
+		"b-small.warc": "123",
+		"a-small.warc": "abc",
+	} {
+		localPath := filepath.Join(tempDir, remotePath)
+		if err := os.WriteFile(localPath, []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		files[remotePath] = localPath
+	}
+
+	plan, totalSize, err := buildUploadPlan(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if totalSize != 15 {
+		t.Fatalf("total size = %d, want 15", totalSize)
+	}
+	want := []string{"a-small.warc", "b-small.warc", "large.warc"}
+	for i, file := range plan {
+		if file.remotePath != want[i] {
+			t.Fatalf("plan[%d] = %q, want %q", i, file.remotePath, want[i])
+		}
+	}
+}
+
+func TestUploadContextUploadsSmallFilesFirst(t *testing.T) {
+	tempDir := t.TempDir()
+	files := map[string]string{}
+	for remotePath, contents := range map[string]string{
+		"large.warc":  "123456789",
+		"small.warc":  "123",
+		"medium.warc": "123456",
+	} {
+		localPath := filepath.Join(tempDir, remotePath)
+		if err := os.WriteFile(localPath, []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		files[remotePath] = localPath
+	}
+
+	var uploaded []string
+	var derive []string
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Method == http.MethodGet {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(`{"files":[]}`)),
+				Header:     make(http.Header),
+			}, nil
+		}
+		if _, err := io.Copy(io.Discard, request.Body); err != nil {
+			return nil, err
+		}
+		uploaded = append(uploaded, filepath.Base(request.URL.Path))
+		derive = append(derive, request.Header.Get("x-archive-queue-derive"))
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+	})}
+
+	err := UploadContext(t.Context(), client, "identifier", files, map[string][]string{}, "access", "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantUploaded := []string{"small.warc", "medium.warc", "large.warc"}
+	if !slices.Equal(uploaded, wantUploaded) {
+		t.Fatalf("uploaded = %v, want %v", uploaded, wantUploaded)
+	}
+	wantDerive := []string{"0", "0", "1"}
+	if !slices.Equal(derive, wantDerive) {
+		t.Fatalf("derive = %v, want %v", derive, wantDerive)
 	}
 }
 

@@ -32,6 +32,9 @@ if err != nil {
 }
 ```
 
+Files are uploaded sequentially from smallest to largest. Files with the same
+size are ordered by their remote path.
+
 To receive upload statistics, pass a channel to
 `UploadWithProgress`. The uploader sends a snapshot once per second and a final snapshot when it returns. Sends are non-blocking, so a slow consumer may miss snapshots, including the final one.
 
